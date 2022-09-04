@@ -21,44 +21,47 @@ import rospkg
 def readArguments(argv):
     root_name='torso'
     tip_name='rightPalm'
+    robot_description='robot_description'
     try:
-        opts, args = getopt.getopt(argv,"hr:t:",["root_name=","tip_name="])
+        opts, args = getopt.getopt(argv,"hr:t:d:",["root_name=","tip_name=","robot_description="])
         for opt, arg in opts:
             if opt == '-h':
-		print textwrap.dedent("""\
+                print(textwrap.dedent("""\
 
-		Usage: rosrun <package_name> sym_kinematics.py -r <root_name> -t <tip_name> \n
-		Description: This program obtains the analytic value for the jacobian
-		and transformation matrix from the root joint to the tip joint for a robot
-		description on the parameter server.This program supports prismatic and
-		revloute joints only.
-                The output are saved as functions in C++ (.cpp  .h matrix library ViSP) and
-		matlab .m. \n \n
-		To Do: Add support for different joints, print out matrices in python format
-		""")
+                Usage: rosrun <package_name> sym_kinematics.py -r <root_name> -t <tip_name> \n
+                Description: This program obtains the analytic value for the jacobian
+                and transformation matrix from the root joint to the tip joint for a robot
+                description on the parameter server.This program supports prismatic and
+                revloute joints only.
+                        The output are saved as functions in C++ (.cpp  .h matrix library ViSP) and
+                matlab .m. \n \n
+                To Do: Add support for different joints, print out matrices in python format
+                """))
                 sys.exit()
             elif opt in ("-r", "--root_name"):
                 root_name = arg
             elif opt in ("-t", "--tip_name"):
                 tip_name = arg
+            elif opt in ("-d", "--robot_description"):
+                robot_description = arg
     except getopt.GetoptError:
-        print 'sym_kinematics.py -r <root_name> -t <tip_name> ,using default values'
+        print('sym_kinematics.py -r <root_name> -t <tip_name> ,using default values')
         time.sleep(1)
 
-    print 'Root name is ',root_name, "tip name is ",tip_name
-    return root_name,tip_name
+    print('Root name is ',root_name, "tip name is ",tip_name, "robot description is ",robot_description)
+    return root_name,tip_name,robot_description
 
 
 # simplify a symbolic matrix
 def simpMatrix(M): #olivier's function thanks!!
-    for i in xrange(M.rows):
-        for j in xrange(M.cols):
+    for i in range(M.rows):
+        for j in range(M.cols):
             try:
                 #M[i,j] = sympy.simplify(M[i,j])
                 M[i,j] = sympy.trigsimp(M[i,j])
 
             except ValueError:
-                print 'ValueError skipping simplification'
+                print('ValueError skipping simplification')
                 pass
     return M
 
@@ -128,16 +131,16 @@ def getKinematicInformation(robot,root_name,tip_name):
     transforms=[]
     sigma=[]
     for i in reversed(desired_chain):
-        print i
+        print(i)
         for j in robot.joints:
             if(j.name==i):
-                print "joint name =",j.name
-                print "joint child ",j.child
-                print "joint parent ",j.parent
-                print "joint type",j.type
-                print "origin xyz",j.origin.xyz
-                print "origin rpy",j.origin.rpy
-                print "axis", j.axis
+                print("joint name =",j.name)
+                print("joint child ",j.child)
+                print ("joint parent ",j.parent)
+                print ("joint type",j.type)
+                print ("origin xyz",j.origin.xyz)
+                print ("origin rpy",j.origin.rpy)
+                print ("axis", j.axis)
 
                 if(j.type=='revolute' or j.type=='prismatic'):
                     sigma.append(j.type)
@@ -146,7 +149,7 @@ def getKinematicInformation(robot,root_name,tip_name):
 
                 axes.append(j.axis) # convert numerical axis to string
                 transforms.append(translationToTransform(j.origin.xyz)*rpyToRot(j.origin.rpy))
-                print '================='
+                print ('=================')
 
     # Put in ascending order
     axes.reverse()
@@ -163,9 +166,9 @@ def directGeometricModel(transform_dh,q,axes,sigma): # returns the transformatio
     for i in range(len(transform_dh)):
         # i-1^Transform_i= fixed_transform*transform due to joint motion
         if(sigma[i]=='revolute'):
-            T.append(transform_dh[i]*transMat(q[i],axes[i],'T'))
+            T.append(transform_dh[i]*transMat(q[i],axes[i],'T'))    # TODO: fixed transform (sigma[i]=='fixed')
         elif(sigma[i]=='prismatic'):
-            print "Tpris=",sympy.pprint(transMatPrismatic(q[i],axes[i]))
+            print ("Tpris=",sympy.pprint(transMatPrismatic(q[i],axes[i])))
             T.append(transform_dh[i]*transMatPrismatic(q[i],axes[i]))
 
         # w^Transform_i =w^Transform_i-1* i-1^Transform_i
@@ -193,7 +196,7 @@ def directKinematicModel(transforms_sym,axes,sigma):
     jacobian=sympy.zeros(6,number_of_joints) # initialise jacobians
     # obtain columns of jacobian matrix
     for k in range(number_of_joints):
-        a=transforms_sym[k][0:3,axes[k].index(1)] # extract joint axis
+        a=transforms_sym[k][0:3,axes[k].index(1)] # extract joint axis (normally the z-Axis)
         askew=skew(a) # find skew symmetric matrix
         if(sigma[k]=='revolute'):
             jac_k=askew*(transforms_sym[number_of_joints-1][0:3,3]-transforms_sym[k][0:3,3]) # find linear velocity effect at terminal joint
@@ -201,7 +204,7 @@ def directKinematicModel(transforms_sym,axes,sigma):
         elif(sigma[k]=='prismatic'):
             jac_k=a;
             jac_k=jac_k.col_join(sympy.zeros(3,1))
-            print "jac_k=",jac_k
+            print ("jac_k=",jac_k)
 
         jacobian[:,k]=jac_k
     return jacobian
@@ -229,9 +232,9 @@ def write_transforms(desired_chain,joint_chain,transforms,file_path):
     tip_name=desired_chain[-1]
     file_name=file_path+"Transforms_"+root_name+"_"+tip_name
 
-    fhpp = open(file_name+".h", "w+")
-    fcpp = open(file_name+".cpp", "w+")
-    fmat = open(file_name+".m", "w+")
+    fhpp = open(file_name+".h", "w")
+    fcpp = open(file_name+".cpp", "w")
+    fmat = open(file_name+".m", "w")
 
 
     mat_header="function T="+"Transforms_"+root_name+"_"+tip_name+"(q) \n \n"
@@ -253,7 +256,7 @@ def write_transforms(desired_chain,joint_chain,transforms,file_path):
     for t in transforms: # cycle through transforms
 
         Root_name=root_name[:0]+root_name[0:].capitalize()
-        Tip_name=desired_chain[counter][:0]+desired_chain[counter][0:].capitalize()
+        Tip_name=(desired_chain[counter][:0]+desired_chain[counter][0:].capitalize())
 
         header_text="void getTransform"+Root_name+Tip_name+"(std::vector<double> q,Eigen::Transform<double,3,Eigen::Affine> & T)"
         cpp_function_header=header_text+"\n { \n"
@@ -289,9 +292,9 @@ def write_jacobians(desired_chain,joint_chain,jacobians,file_path):
 
     file_name=file_path+"Jacobians_"+root_name+"_"+tip_name
 
-    fcpp = open(file_name+".cpp", "w+")
-    fhpp = open(file_name+".h", "w+")
-    fmat = open(file_name+".m", "w+")
+    fcpp = open(file_name+".cpp", "w")
+    fhpp = open(file_name+".h", "w")
+    fmat = open(file_name+".m", "w")
 
     mat_header="function J="+"Jacobians_"+root_name+"_"+tip_name+"(q) \n \n"
     mat_footer="J={"
@@ -307,7 +310,7 @@ def write_jacobians(desired_chain,joint_chain,jacobians,file_path):
         mat_joints+=joint_chain[i]+"=q("+str(i+1)+");\n"
         cpp_joints+="double "+joint_chain[i]+"=q["+str(i)+"];\n"
 
-    print "mat_joints=",mat_joints
+    print ("mat_joints=",mat_joints)
 
     counter=1
     for j in jacobians: # cycle through transforms
@@ -341,32 +344,42 @@ def write_jacobians(desired_chain,joint_chain,jacobians,file_path):
 
 def main(argv):
 
-    root_name,tip_name=readArguments(argv)
-    robot = URDF.from_parameter_server()
+    # root_name,tip_name=readArguments(argv)
+    # robot = URDF.from_parameter_server()
+    # file_path=rospkg.RosPack().get_path('symbolic_models')+"/symbolic_output/"
+
+    # root_name,tip_name,robot_description =readArguments(argv)
+    root_name,tip_name,robot_description = "UR16/base_link_inertia","UR16/ft_sensor_link", "/mur216/robot_description"
+    robot = URDF.from_parameter_server(robot_description)
     file_path=rospkg.RosPack().get_path('symbolic_models')+"/symbolic_output/"
+
+    
 
     desired_joint_chain=robot.get_chain(root=root_name,tip=tip_name,joints=True,links=False)
     desired_link_chain=robot.get_chain(root=root_name,tip=tip_name,joints=False,links=True)
-    print desired_joint_chain
-    print desired_link_chain
+    desired_joint_chain=[v.replace("/","_") for v in desired_joint_chain]
+    desired_link_chain=[v.replace("/","_") for v in desired_link_chain]
+    print (desired_joint_chain)
+    print (desired_link_chain)
     q=sympy.symbols(desired_joint_chain)
 
     axes,transforms_dh,sigma=getKinematicInformation(robot,root_name,tip_name)
 
-    print "transforms"
+    print ("transforms")
     transforms_sym=directGeometricModel(transforms_dh,q,axes,sigma)
     # Need deepcopy as transforms_sym is modified by function
-    print "Jacobians"
+    print ("Jacobians")
     jacobians_sym=allDirectKinematicModels(deepcopy(transforms_sym),deepcopy(axes),deepcopy(sigma))
 
-    print "Writing"
+    print ("Writing")
+    
     write_transforms(desired_link_chain,desired_joint_chain,transforms_sym,file_path)# write transforms to file
     write_jacobians(desired_link_chain,desired_joint_chain,jacobians_sym,file_path)# write transforms to file
 
 
     for i,j in zip(transforms_sym,jacobians_sym):
-        print "T=",sympy.pprint(i)
-        print "J=",sympy.pprint(j)
+        print ("T=",sympy.pprint(i))
+        print ("J=",sympy.pprint(j))
 
 
 if __name__ == '__main__':
